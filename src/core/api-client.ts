@@ -90,9 +90,72 @@ class InferrLMClient {
     if (max_tokens) body.max_tokens = max_tokens;
 
     if (stream) {
-      return this.streamChat(body);
+      return this.streamOpenAIChat(body);
     } else {
-      return this.request('/api/chat', { method: 'POST', body });
+      return this.openAIChat(body);
+    }
+  }
+
+  async openAIChat(body: any) {
+    const result = await this.request('/v1/chat/completions', { method: 'POST', body });
+    const choice = result?.choices?.[0];
+    return {
+      model: result?.model,
+      response: choice?.message?.content || '',
+      done: true,
+    };
+  }
+
+  async *streamOpenAIChat(body: any) {
+    const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const data = await response.text();
+      let parsed;
+      try { parsed = JSON.parse(data); } catch { parsed = null; }
+      throw new ApiError(parsed?.error?.message || `HTTP ${response.status}`, response.status, parsed);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new ApiError('Response body is not readable', 0, null);
+    }
+
+    const decoder = new TextDecoder();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n').filter(line => line.trim());
+
+        for (const line of lines) {
+          if (line === 'data: [DONE]') {
+            yield { response: '', done: true };
+            return;
+          }
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              const content = data.choices?.[0]?.delta?.content || '';
+              const finished = data.choices?.[0]?.finish_reason === 'stop';
+              if (content || finished) {
+                yield { response: content, done: finished };
+              }
+            } catch {
+              continue;
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
     }
   }
 
@@ -187,34 +250,26 @@ class InferrLMClient {
 
   async generate(params: GenerateParams) {
     const { model, prompt, stream = false, temperature = 0.7, max_tokens } = params;
-    const body: any = { prompt, stream, temperature };
+    const messages = [{ role: 'user', content: prompt }];
+    const body: any = { messages, stream, temperature };
     if (max_tokens) body.max_tokens = max_tokens;
     if (model) body.model = model;
 
     if (stream) {
-      return this.streamGenerate(body);
+      return this.streamOpenAIChat(body);
     } else {
-      return this.request('/api/generate', { method: 'POST', body });
+      return this.openAIChat(body);
     }
   }
 
   async listModels() {
-    const response = await this.request('/api/tags');
-    let models = response.models || [];
-    
-    try {
-      const afStatus = await this.getAppleFoundationStatus();
-      if (afStatus.enabled && afStatus.available) {
-        models.push({
-          name: 'apple-foundation',
-          model_type: 'apple-foundation',
-          is_external: true,
-          size: 0
-        });
-      }
-    } catch (err) {
-    }
-    
+    const response = await this.request('/v1/models');
+    const models = (response.data || []).map((m: any) => ({
+      name: m.id,
+      model_type: m.owned_by === 'apple' ? 'apple-foundation' : m.owned_by === 'remote' ? 'remote' : 'local',
+      is_external: m.owned_by !== 'local',
+      size: 0,
+    }));
     return models;
   }
 
