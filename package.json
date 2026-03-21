@@ -1,6 +1,6 @@
 {
   "name": "inferrlm",
-  "version": "1.0.4",
+  "version": "1.0.7",
   "description": "Terminal client for interacting with the InferrLM local server REST API",
   "engines": {
     "node": ">=20.0.0"
@@ -36,13 +36,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sbhjt-gr/inferra.git",
-    "directory": "inferra-cli/inferra-cli"
+    "url": "git+https://github.com/sbhjt-gr/InferrLM-CLI.git"
   },
   "bugs": {
-    "url": "https://github.com/sbhjt-gr/inferra/issues"
+    "url": "https://github.com/sbhjt-gr/InferrLM-CLI/issues"
   },
-  "homepage": "https://github.com/sbhjt-gr/inferra/tree/main/inferra-cli/inferra-cli#readme",
+  "homepage": "https://github.com/sbhjt-gr/InferrLM-CLI#readme",
   "files": [
     "dist/",
     "README.md",

@@ -47,7 +47,7 @@ const generateCommand = {
         const stream = await client.generate(params);
 
         for await (const chunk of stream) {
-          process.stdout.write(chunk.content || '');
+          process.stdout.write(chunk.response || '');
         }
         console.log('\n');
       } else {
