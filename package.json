@@ -1,6 +1,6 @@
 {
   "name": "inferrlm",
-  "version": "1.0.6-rc.0",
+  "version": "1.0.7",
   "description": "Terminal client for interacting with the InferrLM local server REST API",
   "engines": {
     "node": ">=20.0.0"
@@ -42,9 +42,6 @@
     "url": "https://github.com/sbhjt-gr/InferrLM-CLI/issues"
   },
   "homepage": "https://github.com/sbhjt-gr/InferrLM-CLI#readme",
-  "publishConfig": {
-    "tag": "beta"
-  },
   "files": [
     "dist/",
     "README.md",

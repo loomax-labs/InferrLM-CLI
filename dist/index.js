@@ -36,7 +36,7 @@ var init_DefaultAppHeader = __esm({
     init_colors();
     logo = `
  \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
- \u2551  INFERRA CLI v2   \u2551
+ \u2551 INFERRLM CLI v2   \u2551
  \u2551  Local AI Server  \u2551
  \u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D
 `;
@@ -81,7 +81,7 @@ var init_MainLayout = __esm({
 
 // src/core/api-client.ts
 import { fetch } from "undici";
-var ApiError, InferraClient;
+var ApiError, InferrLMClient;
 var init_api_client = __esm({
   "src/core/api-client.ts"() {
     "use strict";
@@ -95,7 +95,7 @@ var init_api_client = __esm({
         this.data = data;
       }
     };
-    InferraClient = class {
+    InferrLMClient = class {
       baseUrl;
       constructor(baseUrl) {
         if (!baseUrl || !baseUrl.trim()) {
@@ -143,9 +143,69 @@ var init_api_client = __esm({
         if (max_tokens)
           body.max_tokens = max_tokens;
         if (stream) {
-          return this.streamChat(body);
+          return this.streamOpenAIChat(body);
         } else {
-          return this.request("/api/chat", { method: "POST", body });
+          return this.openAIChat(body);
+        }
+      }
+      async openAIChat(body) {
+        const result = await this.request("/v1/chat/completions", { method: "POST", body });
+        const choice = result?.choices?.[0];
+        return {
+          model: result?.model,
+          response: choice?.message?.content || "",
+          done: true
+        };
+      }
+      async *streamOpenAIChat(body) {
+        const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+          const data = await response.text();
+          let parsed;
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            parsed = null;
+          }
+          throw new ApiError(parsed?.error?.message || `HTTP ${response.status}`, response.status, parsed);
+        }
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new ApiError("Response body is not readable", 0, null);
+        }
+        const decoder = new TextDecoder();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done)
+              break;
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split("\n").filter((line) => line.trim());
+            for (const line of lines) {
+              if (line === "data: [DONE]") {
+                yield { response: "", done: true };
+                return;
+              }
+              if (line.startsWith("data: ")) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  const content = data.choices?.[0]?.delta?.content || "";
+                  const finished = data.choices?.[0]?.finish_reason === "stop";
+                  if (content || finished) {
+                    yield { response: content, done: finished };
+                  }
+                } catch {
+                  continue;
+                }
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock();
         }
       }
       async *streamChat(body) {
@@ -228,32 +288,26 @@ var init_api_client = __esm({
       }
       async generate(params) {
         const { model, prompt, stream = false, temperature = 0.7, max_tokens } = params;
-        const body = { prompt, stream, temperature };
+        const messages = [{ role: "user", content: prompt }];
+        const body = { messages, stream, temperature };
         if (max_tokens)
           body.max_tokens = max_tokens;
         if (model)
           body.model = model;
         if (stream) {
-          return this.streamGenerate(body);
+          return this.streamOpenAIChat(body);
         } else {
-          return this.request("/api/generate", { method: "POST", body });
+          return this.openAIChat(body);
         }
       }
       async listModels() {
-        const response = await this.request("/api/tags");
-        let models = response.models || [];
-        try {
-          const afStatus = await this.getAppleFoundationStatus();
-          if (afStatus.enabled && afStatus.available) {
-            models.push({
-              name: "apple-foundation",
-              model_type: "apple-foundation",
-              is_external: true,
-              size: 0
-            });
-          }
-        } catch (err) {
-        }
+        const response = await this.request("/v1/models");
+        const models = (response.data || []).map((m) => ({
+          name: m.id,
+          model_type: m.owned_by === "apple" ? "apple-foundation" : m.owned_by === "remote" ? "remote" : "local",
+          is_external: m.owned_by !== "local",
+          size: 0
+        }));
         return models;
       }
       async listLoadedModels() {
@@ -374,7 +428,7 @@ var init_ChatInterface = __esm({
       const { exit } = useApp();
       const clientRef = useRef(null);
       useEffect(() => {
-        clientRef.current = new InferraClient(serverUrl);
+        clientRef.current = new InferrLMClient(serverUrl);
       }, [serverUrl]);
       const sendMessage = async () => {
         if (!input.trim() || isLoading)
@@ -545,7 +599,7 @@ var init_SetupFlow = __esm({
         }
         setLoading(true);
         try {
-          const client = new InferraClient(url);
+          const client = new InferrLMClient(url);
           const modelList = await client.listModels();
           if (modelList.length === 0) {
             setError("no_models");
@@ -791,7 +845,7 @@ var ConfigManager = class {
   configPath;
   config;
   constructor() {
-    this.configPath = path.join(os.homedir(), ".inferra", "config.json");
+    this.configPath = path.join(os.homedir(), ".inferrlm", "config.json");
     this.config = { ...defaultConfig };
   }
   async load() {
@@ -891,7 +945,7 @@ var generateCommand = {
     const stream = argv.stream;
     const url = configManager.get().server.url;
     try {
-      const client = new InferraClient(url);
+      const client = new InferrLMClient(url);
       if (stream) {
         console.log("Streaming generation...");
         const params = {
@@ -903,7 +957,7 @@ var generateCommand = {
           params.model = model;
         const stream2 = await client.generate(params);
         for await (const chunk of stream2) {
-          process.stdout.write(chunk.content || "");
+          process.stdout.write(chunk.response || "");
         }
         console.log("\n");
       } else {
@@ -945,7 +999,7 @@ var modelsCommand = {
     const model = argv.model || argv._[2];
     const url = configManager.get().server.url;
     try {
-      const client = new InferraClient(url);
+      const client = new InferrLMClient(url);
       switch (action) {
         case "list":
           await listModels(client);
@@ -1067,7 +1121,7 @@ var serverCommand = {
 };
 async function checkServerStatus(url) {
   try {
-    const client = new InferraClient(url);
+    const client = new InferrLMClient(url);
     const status = await client.getServerStatus();
     console.log("\u2705 Server is running");
     console.log("URL:", url);
@@ -1092,7 +1146,7 @@ async function discoverServers() {
 }
 async function showServerInfo(url) {
   try {
-    const client = new InferraClient(url);
+    const client = new InferrLMClient(url);
     const version = await client.getVersion();
     console.log("Server Information:");
     console.log("Version:", version);
@@ -1126,7 +1180,7 @@ var ragCommand = {
     const query = argv.query;
     const url = configManager.get().server.url;
     try {
-      const client = new InferraClient(url);
+      const client = new InferrLMClient(url);
       switch (action) {
         case "ingest":
           if (!files || files.length === 0) {
@@ -1190,7 +1244,7 @@ async function runCli() {
     render2(createElement(App2, { command: "chat", args: {} }));
     return;
   }
-  const argv = await yargs(args).scriptName("inferra").usage("$0 <cmd> [args]").command("chat", "Start interactive chat session", chatCommand).command("generate", "Generate text completion", generateCommand).command("models", "Manage AI models", modelsCommand).command("server", "Server management", serverCommand).command("rag", "RAG operations", ragCommand).demandCommand(1, "You need at least one command").help().argv;
+  const argv = await yargs(args).scriptName("inferrlm").usage("$0 <cmd> [args]").command("chat", "Start interactive chat session", chatCommand).command("generate", "Generate text completion", generateCommand).command("models", "Manage AI models", modelsCommand).command("server", "Server management", serverCommand).command("rag", "RAG operations", ragCommand).demandCommand(1, "You need at least one command").help().argv;
   return argv;
 }
 
@@ -1241,3 +1295,4 @@ start().catch((error) => {
   }
   process.exit(1);
 });
+//# sourceMappingURL=index.js.map

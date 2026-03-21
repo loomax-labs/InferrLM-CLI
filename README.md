@@ -31,7 +31,7 @@ InferrLM CLI is the terminal companion to the InferrLM mobile app. It connects d
 ### Prerequisites
 - Node.js 20 or newer
 - A running InferrLM server on your phone or tablet (Server tab inside the app)
-- Network connectivity between your computer and the device (same WiFi)
+- Network connectivity between your computer and the device (same local network)
 
 ### Installation
 
