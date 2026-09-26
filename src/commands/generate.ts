@@ -44,7 +44,7 @@ const generateCommand = {
           stream: true,
         };
         if (model) params.model = model;
-        const stream = await client.generate(params);
+        const stream = (await client.generate(params)) as AsyncIterable<{ response?: string }>;
 
         for await (const chunk of stream) {
           process.stdout.write(chunk.response || '');
@@ -57,7 +57,7 @@ const generateCommand = {
           stream: false,
         };
         if (model) params.model = model;
-        const response = await client.generate(params);
+        const response = (await client.generate(params)) as { response?: string };
 
         console.log(response.response);
       }

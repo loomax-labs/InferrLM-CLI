@@ -64,11 +64,11 @@ export const ChatInterface = ({ initialMessage, model, serverUrl, onExit }: Chat
         content: msg.content,
       }));
 
-      const stream = await clientRef.current.chat({
+      const stream = (await clientRef.current.chat({
         model,
         messages: conv,
         stream: true,
-      });
+      })) as AsyncIterable<{ response?: string; done?: boolean }>;
 
       let content = '';
       for await (const chunk of stream) {
